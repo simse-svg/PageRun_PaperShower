@@ -1,8 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const ReadingPaceApp());
@@ -17,7 +24,25 @@ class ReadingPaceApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Page Run',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE60023)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFE60023),
+        ).copyWith(
+          primary: const Color(0xFFE60023),
+          onPrimary: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFE60023),
+          foregroundColor: Colors.white,
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFE60023),
+            foregroundColor: Colors.white,
+          ),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          indicatorColor: Color(0x33E60023),
+        ),
         useMaterial3: true,
       ),
       home: const MainScreen(),
@@ -47,6 +72,35 @@ class ReadingRecord {
   final double pacePerMinute;
   final List<String> photoPaths;
   final String? mainPhotoPath;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'recordedAt': recordedAt.toIso8601String(),
+      'durationSeconds': duration.inSeconds,
+      'bookName': bookName,
+      'startPage': startPage,
+      'endPage': endPage,
+      'pagesRead': pagesRead,
+      'pacePerMinute': pacePerMinute,
+      'photoPaths': photoPaths,
+      'mainPhotoPath': mainPhotoPath,
+    };
+  }
+
+  factory ReadingRecord.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> photoPathValues = (json['photoPaths'] as List<dynamic>? ?? <dynamic>[]);
+    return ReadingRecord(
+      recordedAt: DateTime.tryParse(json['recordedAt'] as String? ?? '') ?? DateTime.now(),
+      duration: Duration(seconds: _asInt(json['durationSeconds'])),
+      bookName: json['bookName'] as String?,
+      startPage: _asInt(json['startPage']),
+      endPage: _asInt(json['endPage']),
+      pagesRead: _asInt(json['pagesRead']),
+      pacePerMinute: _asDouble(json['pacePerMinute']),
+      photoPaths: photoPathValues.map((dynamic value) => value.toString()).toList(),
+      mainPhotoPath: json['mainPhotoPath'] as String?,
+    );
+  }
 }
 
 class MainScreen extends StatefulWidget {
@@ -57,8 +111,15 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  static const String _recordsStorageKey = 'reading_records_v1';
   int _selectedIndex = 0;
   final List<ReadingRecord> _records = <ReadingRecord>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedRecords();
+  }
 
   List<String> _bookNameOptions() {
     final Set<String> seen = <String>{};
@@ -77,20 +138,73 @@ class _MainScreenState extends State<MainScreen> {
     return names;
   }
 
+  Map<String, int> _latestEndPageByBook() {
+    final Map<String, int> latestEndPageByBook = <String, int>{};
+
+    for (final ReadingRecord record in _records) {
+      final String? name = record.bookName;
+      if (name == null || name.isEmpty || latestEndPageByBook.containsKey(name)) {
+        continue;
+      }
+
+      latestEndPageByBook[name] = record.endPage;
+    }
+
+    return latestEndPageByBook;
+  }
+
   void _addRecord(ReadingRecord record) {
     setState(() {
       _records.insert(0, record);
       _selectedIndex = 0;
     });
+    _saveRecords();
+  }
+
+  Future<void> _loadSavedRecords() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? raw = prefs.getString(_recordsStorageKey);
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+
+    try {
+      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+      final List<ReadingRecord> loaded = decoded
+          .whereType<Map<String, dynamic>>()
+          .map(ReadingRecord.fromJson)
+          .toList();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _records
+          ..clear()
+          ..addAll(loaded);
+      });
+    } catch (_) {
+      await prefs.remove(_recordsStorageKey);
+    }
+  }
+
+  Future<void> _saveRecords() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final List<Map<String, dynamic>> data =
+        _records.map((ReadingRecord record) => record.toJson()).toList();
+    await prefs.setString(_recordsStorageKey, jsonEncode(data));
   }
 
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = <Widget>[
       HomeTab(records: _records),
+      MileageTab(records: _records),
       RecordTab(
         onSave: _addRecord,
         suggestedBookNames: _bookNameOptions(),
+        lastEndPageByBook: _latestEndPageByBook(),
       ),
     ];
 
@@ -111,6 +225,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Mileage',
           ),
           NavigationDestination(
             icon: Icon(Icons.play_circle_outline),
@@ -170,13 +289,6 @@ class _RecordCardState extends State<_RecordCard> {
         .where((String path) => path.isNotEmpty)
         .toList();
 
-    if (validPaths.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('이 기록에는 사진이 없습니다.')));
-      return;
-    }
-
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => _RecordPhotosScreen(
@@ -232,6 +344,17 @@ class _RecordCardState extends State<_RecordCard> {
   @override
   Widget build(BuildContext context) {
     final ReadingRecord record = widget.record;
+    final String pagesValue = '${record.pagesRead}';
+    final String paceValue = '${record.pacePerMinute.toStringAsFixed(1)} p/min';
+    final String timeValue = _formatHomeDuration(record.duration);
+    final int maxMetricLength = <String>[pagesValue, paceValue, timeValue]
+      .map((String value) => value.length)
+      .fold<int>(0, (int prev, int len) => len > prev ? len : prev);
+    final double metricValueFontSize = maxMetricLength >= 9
+      ? 27
+      : maxMetricLength >= 7
+        ? 31
+        : 36;
     final bool hasPhoto = record.mainPhotoPath != null && record.mainPhotoPath!.isNotEmpty;
     final double cardAspectRatio = hasPhoto
         ? (_photoAspectRatio ?? (3 / 4)).clamp(0.65, 1.2)
@@ -244,7 +367,6 @@ class _RecordCardState extends State<_RecordCard> {
         child: AspectRatio(
           aspectRatio: cardAspectRatio,
           child: Container(
-            borderRadius: BorderRadius.circular(24),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(24),
               image: hasPhoto
@@ -280,56 +402,74 @@ class _RecordCardState extends State<_RecordCard> {
                 ),
               ),
               padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Stack(
                 children: <Widget>[
-                  Text(
-                    _formatDateTime(record.recordedAt),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  Row(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Expanded(
-                        child: _MetricBlock(label: 'Pages', value: '${record.pagesRead}'),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              _formatDateTime(record.recordedAt),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'PP. ${record.startPage} - ${record.endPage}',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: Color(0xFFE8EEF2),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: _MetricBlock(
-                          label: 'Pace',
-                          value: '${record.pacePerMinute.toStringAsFixed(1)} pages/min',
-                        ),
+                      const Spacer(),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Expanded(
+                            child: _MetricBlock(
+                              label: 'Pages',
+                              value: pagesValue,
+                              valueFontSize: metricValueFontSize,
+                            ),
+                          ),
+                          Expanded(
+                            child: _MetricBlock(
+                              label: 'Pace',
+                              value: paceValue,
+                              valueFontSize: metricValueFontSize,
+                            ),
+                          ),
+                          Expanded(
+                            child: _MetricBlock(
+                              label: 'Time',
+                              value: timeValue,
+                              valueFontSize: metricValueFontSize,
+                            ),
+                          ),
+                        ],
                       ),
-                      Expanded(
-                        child: _MetricBlock(
-                          label: 'Time',
-                          value: _formatShortDuration(record.duration),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'PAGERUN',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.8,
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'PAGERUN',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.8,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${record.startPage} -> ${record.endPage}  |  사진 ${record.photoPaths.length}장',
-                    style: const TextStyle(
-                      color: Color(0xFFE8EEF2),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
                   ),
                 ],
               ),
@@ -357,15 +497,122 @@ class _RecordPhotosScreen extends StatefulWidget {
 class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
   late final PageController _pageController;
   late int _currentIndex;
+  bool _isSavingPhoto = false;
+  final GlobalKey _transparentRecordKey = GlobalKey();
+
+  int get _totalPages => widget.photoPaths.length + 1;
+
+  bool get _isTransparentPageSelected => _currentIndex == 0;
+
+  String _photoPathFromIndex(int pageIndex) {
+    return widget.photoPaths[pageIndex - 1];
+  }
+
+  Future<Uint8List> _captureTransparentRecordImageBytes() async {
+    final RenderRepaintBoundary? boundary =
+        _transparentRecordKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) {
+      throw Exception('transparent_capture_unavailable');
+    }
+
+    final ui.Image image = await boundary.toImage(pixelRatio: 3);
+    final ByteData? bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      throw Exception('transparent_capture_failed');
+    }
+
+    return bytes.buffer.asUint8List();
+  }
+
+  Uint8List _normalizeImageOrientation(Uint8List imageBytes) {
+    final img.Image? decoded = img.decodeImage(imageBytes);
+    if (decoded == null) {
+      return imageBytes;
+    }
+
+    final img.Image baked = img.bakeOrientation(decoded);
+    return Uint8List.fromList(img.encodeJpg(baked, quality: 100));
+  }
+
+  Future<void> _downloadCurrentPhoto() async {
+    if (_isSavingPhoto) {
+      return;
+    }
+
+    setState(() {
+      _isSavingPhoto = true;
+    });
+
+    try {
+      final Uint8List imageBytes;
+      if (_isTransparentPageSelected) {
+        imageBytes = await _captureTransparentRecordImageBytes();
+      } else {
+        final String path = _photoPathFromIndex(_currentIndex);
+        final File file = File(path);
+        if (!await file.exists()) {
+          throw Exception('photo_missing');
+        }
+
+        final Uint8List rawImageBytes = await file.readAsBytes();
+        imageBytes = _normalizeImageOrientation(rawImageBytes);
+      }
+
+      final String fileName =
+          'pagerun_${widget.record.recordedAt.millisecondsSinceEpoch}_${_currentIndex + 1}';
+      final dynamic result = await ImageGallerySaverPlus.saveImage(
+        imageBytes,
+        quality: 100,
+        name: fileName,
+      );
+
+      bool success = false;
+      if (result is Map) {
+        final dynamic isSuccess = result['isSuccess'];
+        final dynamic hasPath = result['filePath'];
+        success = isSuccess == true || (hasPath is String && hasPath.isNotEmpty);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(success ? '사진이 갤러리에 저장되었습니다.' : '사진 저장에 실패했습니다.'),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('사진 저장 중 오류가 발생했습니다. 권한을 확인해 주세요.')),
+        );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isSavingPhoto = false;
+      });
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     final String? mainPhotoPath = widget.record.mainPhotoPath;
-    final int initialIndex = mainPhotoPath == null
-        ? 0
+    final int mainPhotoIndex = mainPhotoPath == null
+        ? -1
         : widget.photoPaths.indexOf(mainPhotoPath);
-    _currentIndex = initialIndex >= 0 ? initialIndex : 0;
+    _currentIndex = mainPhotoIndex >= 0 ? mainPhotoIndex + 1 : 0;
     _pageController = PageController(initialPage: _currentIndex);
   }
 
@@ -379,21 +626,43 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('기록 사진 ${_currentIndex + 1}/${widget.photoPaths.length}'),
+        title: Text('기록 사진 ${_currentIndex + 1}/$_totalPages'),
+        actions: <Widget>[
+          IconButton(
+            onPressed: _isSavingPhoto ? null : _downloadCurrentPhoto,
+            tooltip: '사진 저장',
+            icon: _isSavingPhoto
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded),
+          ),
+        ],
       ),
       body: Column(
         children: <Widget>[
           Expanded(
             child: PageView.builder(
               controller: _pageController,
-              itemCount: widget.photoPaths.length,
+              itemCount: _totalPages,
               onPageChanged: (int index) {
                 setState(() {
                   _currentIndex = index;
                 });
               },
               itemBuilder: (BuildContext context, int index) {
-                final String path = widget.photoPaths[index];
+                if (index == 0) {
+                  return Center(
+                    child: RepaintBoundary(
+                      key: _transparentRecordKey,
+                      child: _TransparentRecordPhoto(record: widget.record),
+                    ),
+                  );
+                }
+
+                final String path = _photoPathFromIndex(index);
                 return InteractiveViewer(
                   minScale: 1,
                   maxScale: 4,
@@ -410,15 +679,14 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
               },
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           SizedBox(
             height: 78,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: widget.photoPaths.length,
+              itemCount: _totalPages,
               itemBuilder: (BuildContext context, int index) {
-                final String path = widget.photoPaths[index];
                 final bool isSelected = index == _currentIndex;
 
                 return GestureDetector(
@@ -437,29 +705,48 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
                       border: Border.all(
                         color: isSelected
                             ? Theme.of(context).colorScheme.primary
-                            : Colors.transparent,
+                            : const Color(0x33000000),
                         width: 2,
                       ),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        File(path),
-                        fit: BoxFit.cover,
-                        errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
-                          return const ColoredBox(
-                            color: Color(0x22000000),
-                            child: Center(child: Icon(Icons.broken_image_outlined)),
-                          );
-                        },
-                      ),
-                    ),
+                    child: index == 0
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: ColoredBox(
+                              color: Colors.black,
+                              child: FittedBox(
+                                fit: BoxFit.cover,
+                                child: SizedBox(
+                                  width: 90,
+                                  height: 160,
+                                  child: _TransparentRecordPhoto(record: widget.record),
+                                ),
+                              ),
+                            ),
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              File(_photoPathFromIndex(index)),
+                              fit: BoxFit.cover,
+                              errorBuilder: (
+                                BuildContext context,
+                                Object error,
+                                StackTrace? stackTrace,
+                              ) {
+                                return const ColoredBox(
+                                  color: Color(0x22000000),
+                                  child: Center(child: Icon(Icons.broken_image_outlined)),
+                                );
+                              },
+                            ),
+                          ),
                   ),
                 );
               },
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
         ],
       ),
     );
@@ -467,36 +754,464 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
 }
 
 class _MetricBlock extends StatelessWidget {
-  const _MetricBlock({required this.label, required this.value});
+  const _MetricBlock({
+    required this.label,
+    required this.value,
+    this.valueFontSize = 36,
+  });
 
   final String label;
   final String value;
+  final double valueFontSize;
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Text(
           label,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             color: Color(0xD9FFFFFF),
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            height: 1.1,
+        const SizedBox(height: 10),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            value,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: valueFontSize,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
           ),
         ),
       ],
     );
+  }
+}
+
+class MileageTab extends StatefulWidget {
+  const MileageTab({super.key, required this.records});
+
+  final List<ReadingRecord> records;
+
+  @override
+  State<MileageTab> createState() => _MileageTabState();
+}
+
+class _MileageTabState extends State<MileageTab> {
+  late DateTime _focusedMonth;
+  int? _selectedDay;
+
+  void _openRecordPhotos(ReadingRecord record) {
+    final List<String> validPaths = record.photoPaths
+        .where((String path) => path.isNotEmpty)
+        .toList();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => _RecordPhotosScreen(
+          record: record,
+          photoPaths: validPaths,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final DateTime now = DateTime.now();
+    _focusedMonth = DateTime(now.year, now.month);
+  }
+
+  void _changeMonth(int delta) {
+    setState(() {
+      _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + delta);
+      _selectedDay = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<ReadingRecord> monthRecords = widget.records.where((ReadingRecord record) {
+      return record.recordedAt.year == _focusedMonth.year &&
+          record.recordedAt.month == _focusedMonth.month;
+    }).toList();
+
+    final int totalPages = monthRecords.fold<int>(
+      0,
+      (int sum, ReadingRecord record) => sum + record.pagesRead,
+    );
+
+    final Duration totalDuration = monthRecords.fold<Duration>(
+      Duration.zero,
+      (Duration sum, ReadingRecord record) => sum + record.duration,
+    );
+    final double averagePace = totalDuration.inSeconds > 0
+        ? totalPages / (totalDuration.inSeconds / 60)
+        : 0;
+    final int totalMinutes = totalDuration.inMinutes;
+
+    final Set<String> seenBookNames = <String>{};
+    final List<String> monthBookNames = <String>[];
+    for (final ReadingRecord record in monthRecords) {
+      final String? name = record.bookName;
+      if (name == null || name.isEmpty || seenBookNames.contains(name)) {
+        continue;
+      }
+
+      seenBookNames.add(name);
+      monthBookNames.add(name);
+    }
+
+    final Set<DateTime> readingDays = monthRecords
+        .map((ReadingRecord record) {
+          final DateTime dt = record.recordedAt;
+          return DateTime(dt.year, dt.month, dt.day);
+        })
+        .toSet();
+
+    final Map<int, int> pagesByDay = <int, int>{};
+    for (final ReadingRecord record in monthRecords) {
+      final int day = record.recordedAt.day;
+      pagesByDay[day] = (pagesByDay[day] ?? 0) + record.pagesRead;
+    }
+
+    final int maxPagesInDay = pagesByDay.values.isEmpty
+        ? 0
+        : pagesByDay.values.reduce((int a, int b) => a > b ? a : b);
+
+    final List<Widget> dayHeaders = <String>['일', '월', '화', '수', '목', '금', '토']
+        .map(
+          (String day) => Center(
+            child: Text(
+              day,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFFA06C7E),
+              ),
+            ),
+          ),
+        )
+        .toList();
+
+    final List<Widget> dayCells = _buildDayCells(
+      context: context,
+      month: _focusedMonth,
+      pagesByDay: pagesByDay,
+      maxPagesInDay: maxPagesInDay,
+    );
+
+    final List<ReadingRecord> selectedDayRecords = _selectedDay == null
+        ? <ReadingRecord>[]
+        : monthRecords
+            .where((ReadingRecord record) => record.recordedAt.day == _selectedDay)
+            .toList()
+          ..sort(
+            (ReadingRecord a, ReadingRecord b) => b.recordedAt.compareTo(a.recordedAt),
+          );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              IconButton(
+                onPressed: () => _changeMonth(-1),
+                icon: const Icon(Icons.chevron_left),
+                tooltip: '이전 달',
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '${_focusedMonth.year}. ${_focusedMonth.month}',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _changeMonth(1),
+                icon: const Icon(Icons.chevron_right),
+                tooltip: '다음 달',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${_formatDuration(totalDuration)}  |  ${totalPages}pages  |  ${readingDays.length}days',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF7F838D),
+                ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFE6EF),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 30),
+            child: Column(
+              children: <Widget>[
+                GridView.count(
+                  crossAxisCount: 7,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1.6,
+                  children: dayHeaders,
+                ),
+                const Divider(color: Color(0xFFF3BDD1), height: 10),
+                const SizedBox(height: 10),
+                GridView.count(
+                  crossAxisCount: 7,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 0.9,
+                  children: dayCells,
+                ),
+              ],
+            ),
+          ),
+          if (monthRecords.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1F7),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Summary',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: const Color(0xFF7E3C54),
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          '${monthBookNames.length}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF8F5A6C),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          '$totalMinutes',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF8F5A6C),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          averagePace.toStringAsFixed(1),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF7E3C54),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_selectedDay != null) ...<Widget>[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE6EF),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '${_focusedMonth.month}월 $_selectedDay일 기록',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: const Color(0xFF7E3C54),
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (selectedDayRecords.isEmpty)
+                    Text(
+                      '기록이 없습니다.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF9A6A7B),
+                          ),
+                    ),
+                  if (selectedDayRecords.isNotEmpty)
+                    ...selectedDayRecords.map(
+                      (ReadingRecord record) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: const Color(0xFFFFF3F8),
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _openRecordPhotos(record),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      _formatDateTime(record.recordedAt),
+                                      style: const TextStyle(
+                                        color: Color(0xFF8F5A6C),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${record.pagesRead}p • ${_formatShortDuration(record.duration)}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF7E3C54),
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildDayCells({
+    required BuildContext context,
+    required DateTime month,
+    required Map<int, int> pagesByDay,
+    required int maxPagesInDay,
+  }) {
+    final DateTime firstDay = DateTime(month.year, month.month, 1);
+    final int totalDays = DateTime(month.year, month.month + 1, 0).day;
+    final int leadingEmpty = firstDay.weekday % 7;
+
+    final List<Widget> cells = <Widget>[];
+    for (int i = 0; i < leadingEmpty; i++) {
+      cells.add(const SizedBox.shrink());
+    }
+
+    for (int day = 1; day <= totalDays; day++) {
+      final int pages = pagesByDay[day] ?? 0;
+      final bool isReadDay = pages > 0;
+      final bool isSelectedDay = _selectedDay == day;
+      final double circleSize;
+      if (!isReadDay) {
+        circleSize = 0;
+      } else if (pages <= 10) {
+        circleSize = 12;
+      } else if (pages <= 99) {
+        circleSize = 18;
+      } else {
+        circleSize = 25;
+      }
+      final int weekday = DateTime(month.year, month.month, day).weekday;
+      final Color dayTextColor = weekday == DateTime.sunday
+          ? const Color(0xFFD35A82)
+          : const Color(0xFF8F5A6C);
+
+      cells.add(
+        GestureDetector(
+          onTap: isReadDay
+              ? () {
+                  setState(() {
+                    _selectedDay = day;
+                  });
+                }
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: <Widget>[
+                SizedBox(
+                  height: 42,
+                  child: Center(
+                    child: isReadDay
+                        ? AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            width: circleSize,
+                            height: circleSize,
+                            decoration: BoxDecoration(
+                              color: isSelectedDay
+                                  ? const Color(0xFF31F398)
+                                  : const Color(0xFF16D37E),
+                              shape: BoxShape.circle,
+                              border: isSelectedDay
+                                  ? Border.all(
+                                      color: Colors.white,
+                                      width: 1.4,
+                                    )
+                                  : null,
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+                Text(
+                  '$day',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: dayTextColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return cells;
   }
 }
 
@@ -505,10 +1220,12 @@ class RecordTab extends StatefulWidget {
     super.key,
     required this.onSave,
     required this.suggestedBookNames,
+    required this.lastEndPageByBook,
   });
 
   final ValueChanged<ReadingRecord> onSave;
   final List<String> suggestedBookNames;
+  final Map<String, int> lastEndPageByBook;
 
   @override
   State<RecordTab> createState() => _RecordTabState();
@@ -746,7 +1463,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                                   Container(
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(color: Colors.white, width: 3),
+                                      border: Border.all(color: const Color(0xFFE60023), width: 3),
                                       color: const Color(0x330B5563),
                                     ),
                                   ),
@@ -760,10 +1477,6 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 ),
               ),
               actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(_capturedPhotoPaths.first),
-                  child: const Text('첫 사진 사용'),
-                ),
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(selectedPath),
                   child: const Text('선택 완료'),
@@ -792,6 +1505,10 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   void _showBookDialog() {
@@ -835,6 +1552,8 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final Color inactiveButtonColor = Theme.of(context).colorScheme.surfaceContainer;
+
     return Container(
       decoration: const BoxDecoration(
         image: DecorationImage(
@@ -842,127 +1561,187 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
           fit: BoxFit.cover,
         ),
       ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            TextField(
-              controller: _startPageController,
-              enabled: !_isRunning,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: '시작 페이지',
-                hintText: '예: 12',
-                border: const OutlineInputBorder(),
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.surfaceContainer,
-              ),
-            ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _bookNameController,
-            enabled: !_isRunning,
-            decoration: InputDecoration(
-              labelText: '책 이름',
-              hintText: '예: Flutter Guide',
-              border: const OutlineInputBorder(),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainer,
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: widget.suggestedBookNames.contains(_bookNameController.text.trim())
-                ? _bookNameController.text.trim()
-                : null,
-            decoration: InputDecoration(
-              labelText: '이전 책 이름',
-              hintText: widget.suggestedBookNames.isEmpty ? '이전 입력 없음' : '선택해서 채우기',
-              border: const OutlineInputBorder(),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainer,
-            ),
-            items: widget.suggestedBookNames
-                .map(
-                  (String name) => DropdownMenuItem<String>(
-                    value: name,
-                    child: Text(name, overflow: TextOverflow.ellipsis),
-                  ),
-                )
-                .toList(),
-            onChanged: widget.suggestedBookNames.isEmpty
-                ? null
-                : (String? value) {
-                    if (value == null) {
-                      return;
-                    }
-
-                    setState(() {
-                      _bookNameController.text = value;
-                    });
-                  },
-          ),
-          const SizedBox(height: 18),
-          Card(
-            color: Theme.of(context).colorScheme.surfaceContainer,
-            child: Padding(
+      child: Column(
+        children: <Widget>[
+          Expanded(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text('측정 시간', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Text(
-                    _formatDuration(_elapsed),
-                    style: Theme.of(context).textTheme.displaySmall,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _startedAt == null ? '대기 중' : '시작: ${_formatTime(_startedAt!)}',
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  TextField(
+                    controller: _bookNameController,
+                    enabled: !_isRunning,
+                    decoration: InputDecoration(
+                      labelText: 'Book Name',
+                      hintText: 'Ex. 행복의 기원',
+                      border: const OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainer,
+                      suffixIcon: (!_isRunning && widget.suggestedBookNames.isNotEmpty)
+                          ? PopupMenuButton<String>(
+                              position: PopupMenuPosition.under,
+                              offset: const Offset(0, 8),
+                              constraints: BoxConstraints(
+                                minWidth: MediaQuery.sizeOf(context).width - 32,
+                                maxWidth: MediaQuery.sizeOf(context).width - 32,
+                              ),
+                              tooltip: '이전 책 선택',
+                              icon: const Icon(Icons.arrow_drop_down),
+                              onOpened: _dismissKeyboard,
+                              onSelected: (String value) {
+                                final int? suggestedStartPage = widget.lastEndPageByBook[value];
+                                _dismissKeyboard();
+                                setState(() {
+                                  _bookNameController.text = value;
+                                  if (suggestedStartPage != null && suggestedStartPage >= 0) {
+                                    _startPageController.text = suggestedStartPage.toString();
+                                    _startPageController.selection = TextSelection.collapsed(
+                                      offset: _startPageController.text.length,
+                                    );
+                                  }
+                                });
+                              },
+                              itemBuilder: (BuildContext context) {
+                                return widget.suggestedBookNames
+                                    .map(
+                                      (String name) => PopupMenuItem<String>(
+                                        value: name,
+                                        child: Text(name, overflow: TextOverflow.ellipsis),
+                                      ),
+                                    )
+                                    .toList();
+                              },
+                            )
+                          : const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    _lastSavedPace == null
-                        ? 'Pace: 저장된 기록이 없습니다.'
-                        : 'Pace(최근): ${_lastSavedPace!.toStringAsFixed(2)} p/min (${_lastPagesRead ?? 0}p)',
+                  TextField(
+                    controller: _startPageController,
+                    enabled: !_isRunning,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Start Page',
+                      hintText: 'Ex. 12',
+                      border: const OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainer,
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text('사진 기록: ${_capturedPhotoPaths.length}장'),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              FilledButton.icon(
-                onPressed: _isRunning ? null : _startRecording,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('시작'),
-              ),
-              FilledButton.icon(
-                onPressed: _isRunning ? _stopRecording : null,
-                icon: const Icon(Icons.stop),
-                label: const Text('정지/저장'),
-              ),
-              FilledButton.icon(
-                onPressed: _isRunning ? _capturePhoto : null,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('촬영'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _reset,
-                icon: const Icon(Icons.refresh),
-                label: const Text('리셋'),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final double cardHeight =
+                    (constraints.maxWidth * 0.30).clamp(96.0, 128.0);
+                final double labelFontSize =
+                  (cardHeight * 0.17).clamp(14.0, 20.0);
+                final double valueFontSize =
+                  (cardHeight * 0.34).clamp(28.0, 44.0);
+                final double valueTopSpacing =
+                  (cardHeight * 0.07).clamp(6.0, 10.0);
+
+                return SizedBox(
+                  width: double.infinity,
+                  height: cardHeight,
+                  child: Card(
+                    margin: EdgeInsets.zero,
+                    color: Theme.of(context).colorScheme.surfaceContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          Text(
+                            'Time',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontSize: labelFontSize,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                          SizedBox(height: valueTopSpacing),
+                          Text(
+                            _formatDuration(_elapsed),
+                            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                                  fontSize: valueFontSize,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isRunning ? null : _startRecording,
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('Start', style: TextStyle(fontSize: 16)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      disabledBackgroundColor: inactiveButtonColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isRunning ? _stopRecording : null,
+                    icon: const Icon(Icons.stop, size: 18),
+                    label: const Text('Stop', style: TextStyle(fontSize: 16)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      disabledBackgroundColor: inactiveButtonColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _isRunning ? _capturePhoto : null,
+                    icon: const Icon(Icons.camera_alt, size: 18),
+                    label: const Text('Picture', style: TextStyle(fontSize: 16)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      disabledBackgroundColor: inactiveButtonColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _reset,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Reset', style: TextStyle(fontSize: 16)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      disabledBackgroundColor: inactiveButtonColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      ),
       ),
     );
   }
@@ -972,13 +1751,6 @@ String _formatDuration(Duration duration) {
   final String h = duration.inHours.toString().padLeft(2, '0');
   final String m = (duration.inMinutes % 60).toString().padLeft(2, '0');
   final String s = (duration.inSeconds % 60).toString().padLeft(2, '0');
-  return '$h:$m:$s';
-}
-
-String _formatTime(DateTime dateTime) {
-  final String h = dateTime.hour.toString().padLeft(2, '0');
-  final String m = dateTime.minute.toString().padLeft(2, '0');
-  final String s = dateTime.second.toString().padLeft(2, '0');
   return '$h:$m:$s';
 }
 
@@ -995,4 +1767,136 @@ String _formatShortDuration(Duration duration) {
   final int totalMinutes = duration.inMinutes;
   final int seconds = duration.inSeconds % 60;
   return '${totalMinutes}m ${seconds.toString().padLeft(2, '0')}s';
+}
+
+String _formatHomeDuration(Duration duration) {
+  final int hours = duration.inHours;
+  final int minutes = duration.inMinutes % 60;
+  if (hours > 0) {
+    return '${hours}h ${minutes.toString().padLeft(2, '0')}m';
+  }
+
+  return '${duration.inMinutes}m';
+}
+
+String _formatMileageDuration(Duration duration) {
+  final int totalHours = duration.inHours;
+  final int minutes = duration.inMinutes % 60;
+  return '${totalHours}시간 ${minutes.toString().padLeft(2, '0')}분';
+}
+
+int _asInt(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+
+  if (value is double) {
+    return value.round();
+  }
+
+  if (value is String) {
+    return int.tryParse(value) ?? 0;
+  }
+
+  return 0;
+}
+
+double _asDouble(dynamic value) {
+  if (value is double) {
+    return value;
+  }
+
+  if (value is int) {
+    return value.toDouble();
+  }
+
+  if (value is String) {
+    return double.tryParse(value) ?? 0;
+  }
+
+  return 0;
+}
+
+class _TransparentRecordPhoto extends StatelessWidget {
+  const _TransparentRecordPhoto({required this.record});
+
+  final ReadingRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 9 / 16,
+      child: Container(
+        color: Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: <Widget>[
+            const SizedBox(height: 16),
+            _TransparentMetric(label: 'Pages', value: '${record.pagesRead} p'),
+            const SizedBox(height: 26),
+            _TransparentMetric(
+              label: 'Pace',
+              value: '${record.pacePerMinute.toStringAsFixed(1)} p/min',
+            ),
+            const SizedBox(height: 26),
+            _TransparentMetric(label: 'Time', value: _formatShortDuration(record.duration)),
+            const Spacer(),
+            const Text(
+              'PAGERUN',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TransparentMetric extends StatelessWidget {
+  const _TransparentMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Center(
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 50,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
