@@ -448,6 +448,7 @@ class _RecordCardState extends State<_RecordCard> {
                               label: 'Pace',
                               value: paceValue,
                               valueFontSize: metricValueFontSize,
+                              useCompactUnitStyle: true,
                             ),
                           ),
                           Expanded(
@@ -455,6 +456,7 @@ class _RecordCardState extends State<_RecordCard> {
                               label: 'Time',
                               value: timeValue,
                               valueFontSize: metricValueFontSize,
+                              useCompactUnitStyle: true,
                             ),
                           ),
                         ],
@@ -758,11 +760,57 @@ class _MetricBlock extends StatelessWidget {
     required this.label,
     required this.value,
     this.valueFontSize = 36,
+    this.useCompactUnitStyle = false,
   });
 
   final String label;
   final String value;
   final double valueFontSize;
+  final bool useCompactUnitStyle;
+
+  List<TextSpan> _buildCompactUnitSpans(TextStyle baseStyle, double unitFontSize) {
+    final List<TextSpan> spans = <TextSpan>[];
+    final StringBuffer buffer = StringBuffer();
+    bool? currentIsUnit;
+
+    bool isUnitChar(String char) {
+      return RegExp(r'[A-Za-z/]').hasMatch(char);
+    }
+
+    void flush() {
+      if (buffer.isEmpty || currentIsUnit == null) {
+        return;
+      }
+
+      spans.add(
+        TextSpan(
+          text: buffer.toString(),
+          style: currentIsUnit!
+              ? baseStyle.copyWith(fontSize: unitFontSize)
+              : baseStyle,
+        ),
+      );
+      buffer.clear();
+    }
+
+    for (int i = 0; i < value.length; i++) {
+      final String char = value[i];
+      final bool isUnit = isUnitChar(char);
+      if (currentIsUnit == null) {
+        currentIsUnit = isUnit;
+      }
+
+      if (currentIsUnit != isUnit) {
+        flush();
+        currentIsUnit = isUnit;
+      }
+
+      buffer.write(char);
+    }
+
+    flush();
+    return spans;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -774,22 +822,38 @@ class _MetricBlock extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: Color(0xD9FFFFFF),
-            fontSize: 12,
+            fontSize: 15,
             fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 10),
         FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(
-            value,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: valueFontSize,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
+          child: Builder(
+            builder: (BuildContext context) {
+              final TextStyle valueStyle = TextStyle(
+                color: Colors.white,
+                fontSize: valueFontSize,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              );
+
+              if (!useCompactUnitStyle) {
+                return Text(
+                  value,
+                  textAlign: TextAlign.center,
+                  style: valueStyle,
+                );
+              }
+
+              final double unitFontSize = valueFontSize < 12 ? valueFontSize : 12;
+              return Text.rich(
+                TextSpan(
+                  children: _buildCompactUnitSpans(valueStyle, unitFontSize),
+                ),
+                textAlign: TextAlign.center,
+              );
+            },
           ),
         ),
       ],
@@ -809,6 +873,34 @@ class MileageTab extends StatefulWidget {
 class _MileageTabState extends State<MileageTab> {
   late DateTime _focusedMonth;
   int? _selectedDay;
+
+  void _openMonthlySummaryPhoto({
+    required Duration totalDuration,
+    required int totalPages,
+    required double averagePace,
+    required List<String> monthBookNames,
+  }) {
+    final ReadingRecord summaryRecord = ReadingRecord(
+      recordedAt: DateTime(_focusedMonth.year, _focusedMonth.month, 1),
+      duration: totalDuration,
+      bookName: monthBookNames.isEmpty ? null : monthBookNames.join(', '),
+      startPage: 0,
+      endPage: totalPages,
+      pagesRead: totalPages,
+      pacePerMinute: averagePace,
+      photoPaths: const <String>[],
+      mainPhotoPath: null,
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => _RecordPhotosScreen(
+          record: summaryRecord,
+          photoPaths: const <String>[],
+        ),
+      ),
+    );
+  }
 
   void _openRecordPhotos(ReadingRecord record) {
     final List<String> validPaths = record.photoPaths
@@ -859,6 +951,7 @@ class _MileageTabState extends State<MileageTab> {
         ? totalPages / (totalDuration.inSeconds / 60)
         : 0;
     final int totalMinutes = totalDuration.inMinutes;
+    final String pageUnit = totalPages == 1 ? 'page' : 'pages';
 
     final Set<String> seenBookNames = <String>{};
     final List<String> monthBookNames = <String>[];
@@ -871,6 +964,9 @@ class _MileageTabState extends State<MileageTab> {
       seenBookNames.add(name);
       monthBookNames.add(name);
     }
+    final String monthBookTitleText =
+        monthBookNames.isEmpty ? '-' : monthBookNames.join(', ');
+    final bool useTwoLineSummaryLayout = monthBookTitleText.length > 18;
 
     final Set<DateTime> readingDays = monthRecords
         .map((ReadingRecord record) {
@@ -878,6 +974,8 @@ class _MileageTabState extends State<MileageTab> {
           return DateTime(dt.year, dt.month, dt.day);
         })
         .toSet();
+    final int totalReadingDays = readingDays.length;
+    final String dayUnit = totalReadingDays == 1 ? 'day' : 'days';
 
     final Map<int, int> pagesByDay = <int, int>{};
     for (final ReadingRecord record in monthRecords) {
@@ -950,7 +1048,7 @@ class _MileageTabState extends State<MileageTab> {
           ),
           const SizedBox(height: 8),
           Text(
-            '${_formatDuration(totalDuration)}  |  ${totalPages}pages  |  ${readingDays.length}days',
+            '${_formatDuration(totalDuration)}  |  ${totalPages}${pageUnit}  |  ${totalReadingDays}${dayUnit}',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: const Color(0xFF7F838D),
@@ -986,62 +1084,113 @@ class _MileageTabState extends State<MileageTab> {
           ),
           if (monthRecords.isNotEmpty) ...<Widget>[
             const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1F7),
+            Material(
+              color: const Color(0xFFFFF1F7),
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
                 borderRadius: BorderRadius.circular(18),
-              ),
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Summary',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: const Color(0xFF7E3C54),
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
+                onTap: () => _openMonthlySummaryPhoto(
+                  totalDuration: totalDuration,
+                  totalPages: totalPages,
+                  averagePace: averagePace,
+                  monthBookNames: monthBookNames,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          '${monthBookNames.length}',
+                      Text(
+                        'Summary',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: const Color(0xFF7E3C54),
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (useTwoLineSummaryLayout) ...<Widget>[
+                        Text(
+                          monthBookTitleText,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Color(0xFF8F5A6C),
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          '$totalMinutes',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Color(0xFF8F5A6C),
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                '$totalMinutes min',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF8F5A6C),
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                '${averagePace.toStringAsFixed(1)} p/min',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF7E3C54),
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          averagePace.toStringAsFixed(1),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Color(0xFF7E3C54),
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                          ),
+                      ] else
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                monthBookTitleText,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF8F5A6C),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                '$totalMinutes min',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF8F5A6C),
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                '${averagePace.toStringAsFixed(1)} p/min',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF7E3C54),
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
           ],
@@ -1688,10 +1837,16 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
             child: Row(
               children: <Widget>[
                 Expanded(
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: _isRunning ? null : _startRecording,
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('Start', style: TextStyle(fontSize: 16)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.play_arrow, size: 18),
+                        SizedBox(width: 3),
+                        Text('Start', style: TextStyle(fontSize: 16)),
+                      ],
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1701,10 +1856,16 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: _isRunning ? _stopRecording : null,
-                    icon: const Icon(Icons.stop, size: 18),
-                    label: const Text('Stop', style: TextStyle(fontSize: 16)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.stop, size: 18),
+                        SizedBox(width: 3),
+                        Text('Stop', style: TextStyle(fontSize: 16)),
+                      ],
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1714,10 +1875,16 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: _isRunning ? _capturePhoto : null,
-                    icon: const Icon(Icons.camera_alt, size: 18),
-                    label: const Text('Picture', style: TextStyle(fontSize: 16)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.camera_alt, size: 18),
+                        SizedBox(width: 3),
+                        Text('Picture', style: TextStyle(fontSize: 16)),
+                      ],
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1727,10 +1894,16 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: _reset,
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('Reset', style: TextStyle(fontSize: 16)),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.refresh, size: 18),
+                        SizedBox(width: 3),
+                        Text('Reset', style: TextStyle(fontSize: 16)),
+                      ],
+                    ),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1834,7 +2007,7 @@ class _TransparentRecordPhoto extends StatelessWidget {
           children: <Widget>[
             const SizedBox(height: 16),
             _TransparentMetric(label: 'Pages', value: '${record.pagesRead} p'),
-            const SizedBox(height: 26),
+            const SizedBox(height: 30),
             _TransparentMetric(
               label: 'Pace',
               value: '${record.pacePerMinute.toStringAsFixed(1)} p/min',
@@ -1851,7 +2024,7 @@ class _TransparentRecordPhoto extends StatelessWidget {
                 letterSpacing: 1.6,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 24),
           ],
         ),
       ),
