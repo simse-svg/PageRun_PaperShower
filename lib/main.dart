@@ -212,7 +212,10 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: const Text('Page Run'),
       ),
-      body: pages[_selectedIndex],
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: pages,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (int index) {
@@ -345,7 +348,7 @@ class _RecordCardState extends State<_RecordCard> {
   Widget build(BuildContext context) {
     final ReadingRecord record = widget.record;
     final String pagesValue = '${record.pagesRead}';
-    final String paceValue = '${record.pacePerMinute.toStringAsFixed(1)} p/min';
+    final String paceValue = '${record.pacePerMinute.toStringAsFixed(1)}p/min';
     final String timeValue = _formatHomeDuration(record.duration);
     final int maxMetricLength = <String>[pagesValue, paceValue, timeValue]
       .map((String value) => value.length)
@@ -951,7 +954,7 @@ class _MileageTabState extends State<MileageTab> {
         ? totalPages / (totalDuration.inSeconds / 60)
         : 0;
     final int totalMinutes = totalDuration.inMinutes;
-    final String pageUnit = totalPages == 1 ? 'page' : 'pages';
+    final String pageUnit = totalPages <= 1 ? 'page' : 'pages';
 
     final Set<String> seenBookNames = <String>{};
     final List<String> monthBookNames = <String>[];
@@ -975,7 +978,7 @@ class _MileageTabState extends State<MileageTab> {
         })
         .toSet();
     final int totalReadingDays = readingDays.length;
-    final String dayUnit = totalReadingDays == 1 ? 'day' : 'days';
+    final String dayUnit = totalReadingDays <= 1 ? 'day' : 'days';
 
     final Map<int, int> pagesByDay = <int, int>{};
     for (final ReadingRecord record in monthRecords) {
@@ -1319,7 +1322,7 @@ class _MileageTabState extends State<MileageTab> {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: <Widget>[
                 SizedBox(
                   height: 42,
@@ -1516,10 +1519,32 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
         return;
       }
 
+      bool gallerySaved = false;
+      try {
+        final Uint8List imageBytes = await File(image.path).readAsBytes();
+        final String fileName = 'pagerun_capture_${DateTime.now().millisecondsSinceEpoch}';
+        final dynamic result = await ImageGallerySaverPlus.saveImage(
+          imageBytes,
+          quality: 100,
+          name: fileName,
+        );
+        if (result is Map) {
+          final dynamic isSuccess = result['isSuccess'];
+          final dynamic hasPath = result['filePath'];
+          gallerySaved = isSuccess == true || (hasPath is String && hasPath.isNotEmpty);
+        }
+      } catch (_) {
+        gallerySaved = false;
+      }
+
       setState(() {
         _capturedPhotoPaths.add(image.path);
       });
-      _showSnack('사진이 추가되었습니다.');
+      _showSnack(
+        gallerySaved
+            ? '사진이 추가되고 갤러리에 저장되었습니다.'
+            : '사진은 추가되었지만 갤러리 저장은 실패했습니다.',
+      );
     } catch (_) {
       _showSnack('카메라를 열 수 없습니다. 권한 또는 기기 상태를 확인해 주세요.');
     }
@@ -2007,12 +2032,12 @@ class _TransparentRecordPhoto extends StatelessWidget {
           children: <Widget>[
             const SizedBox(height: 16),
             _TransparentMetric(label: 'Pages', value: '${record.pagesRead} p'),
-            const SizedBox(height: 30),
+            const SizedBox(height: 35),
             _TransparentMetric(
               label: 'Pace',
               value: '${record.pacePerMinute.toStringAsFixed(1)} p/min',
             ),
-            const SizedBox(height: 26),
+            const SizedBox(height: 35),
             _TransparentMetric(label: 'Time', value: _formatShortDuration(record.duration)),
             const Spacer(),
             const Text(
@@ -2024,7 +2049,7 @@ class _TransparentRecordPhoto extends StatelessWidget {
                 letterSpacing: 1.6,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 30),
           ],
         ),
       ),
