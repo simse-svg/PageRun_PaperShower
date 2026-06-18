@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as img;
@@ -246,90 +245,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class HomeTab extends StatefulWidget {
+class HomeTab extends StatelessWidget {
   const HomeTab({super.key, required this.records});
 
   final List<ReadingRecord> records;
 
   @override
-  State<HomeTab> createState() => _HomeTabState();
-}
-
-class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
-  int _currentIndex = 0;
-  late AnimationController _animationController;
-  double _dragOffset = 0;
-  double _animationProgress = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 500),
-      vsync: this,
-    );
-    _animationController.addListener(() {
-      setState(() {
-        _animationProgress = _animationController.value;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _nextCard() {
-    if (_currentIndex < widget.records.length - 1) {
-      _dragOffset = 0;
-      _animationProgress = 0;
-      _animationController.forward(from: 0).then((_) {
-        if (mounted) {
-          setState(() {
-            _currentIndex++;
-            _dragOffset = 0;
-            _animationProgress = 0;
-          });
-          _animationController.reset();
-        }
-      });
-    }
-  }
-
-  void _prevCard() {
-    if (_currentIndex > 0) {
-      _dragOffset = 0;
-      _animationProgress = 0;
-      _animationController.reverse(from: 1).then((_) {
-        if (mounted) {
-          setState(() {
-            _currentIndex--;
-            _dragOffset = 0;
-            _animationProgress = 0;
-          });
-          _animationController.reset();
-        }
-      });
-    }
-  }
-
-  void _snapBack() {
-    _animationController.reverse(from: _animationProgress).then((_) {
-      if (mounted) {
-        setState(() {
-          _dragOffset = 0;
-          _animationProgress = 0;
-        });
-        _animationController.reset();
-      }
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (widget.records.isEmpty) {
+    if (records.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -342,150 +265,20 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
       );
     }
 
-    return Listener(
-      onPointerSignal: (PointerSignalEvent event) {
-        if (event is! PointerScrollEvent) {
-          return;
-        }
-        if (event.scrollDelta.dy > 0) {
-          _nextCard();
-        } else if (event.scrollDelta.dy < 0) {
-          _prevCard();
-        }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: records.length,
+      itemBuilder: (BuildContext context, int index) {
+        return _RecordCard(record: records[index]);
       },
-      child: GestureDetector(
-        onVerticalDragUpdate: (DragUpdateDetails details) {
-          setState(() {
-            _dragOffset += details.delta.dy;
-          });
-        },
-        onVerticalDragEnd: (DragEndDetails details) {
-          final threshold = 60.0;
-          if (_dragOffset > threshold) {
-            _nextCard();
-          } else if (_dragOffset < -threshold) {
-            _prevCard();
-          } else {
-            _snapBack();
-          }
-        },
-        child: Center(
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              for (int i = widget.records.length - 1; i >= _currentIndex; i--)
-                Builder(
-                  builder: (BuildContext context) {
-                    final cardIndex = (i - _currentIndex).toDouble();
-                    final totalProgress = _dragOffset / 100.0 + _animationProgress;
-                    final adjustedIndex = cardIndex - totalProgress;
-
-                    final yOffset = -(adjustedIndex * 100.0);
-                    final scale = (1 - (adjustedIndex.abs() * 0.04)).clamp(0.8, 1.0);
-                    final opacity = (1 - (adjustedIndex.abs() * 0.2)).clamp(0.3, 1.0);
-
-                    return Transform.translate(
-                      offset: Offset(0, yOffset),
-                      child: Transform.scale(
-                        scale: scale,
-                        child: Opacity(
-                          opacity: opacity,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: _RecordCard(
-                              record: widget.records[i],
-                              margin: EdgeInsets.zero,
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (BuildContext context) =>
-                                        _HomeRecordFocusScreen(
-                                      records: widget.records,
-                                      initialIndex: i,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeRecordFocusScreen extends StatefulWidget {
-  const _HomeRecordFocusScreen({
-    required this.records,
-    required this.initialIndex,
-  });
-
-  final List<ReadingRecord> records;
-  final int initialIndex;
-
-  @override
-  State<_HomeRecordFocusScreen> createState() => _HomeRecordFocusScreenState();
-}
-
-class _HomeRecordFocusScreenState extends State<_HomeRecordFocusScreen> {
-  late final PageController _pageController;
-  late int _currentIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: widget.initialIndex);
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('기록 ${_currentIndex + 1}/${widget.records.length}'),
-      ),
-      body: PageView.builder(
-        controller: _pageController,
-        itemCount: widget.records.length,
-        onPageChanged: (int index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        itemBuilder: (BuildContext context, int index) {
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: _RecordCard(record: widget.records[index], margin: EdgeInsets.zero),
-          );
-        },
-      ),
     );
   }
 }
 
 class _RecordCard extends StatefulWidget {
-  const _RecordCard({
-    required this.record,
-    this.onTap,
-    this.margin = const EdgeInsets.only(bottom: 16),
-  });
+  const _RecordCard({required this.record});
 
   final ReadingRecord record;
-  final VoidCallback? onTap;
-  final EdgeInsetsGeometry margin;
 
   @override
   State<_RecordCard> createState() => _RecordCardState();
@@ -571,9 +364,9 @@ class _RecordCardState extends State<_RecordCard> {
         : 16 / 10;
 
     return Container(
-      margin: widget.margin,
+      margin: const EdgeInsets.only(bottom: 16),
       child: GestureDetector(
-        onTap: widget.onTap ?? _openPhotoGallery,
+        onTap: _openPhotoGallery,
         child: AspectRatio(
           aspectRatio: cardAspectRatio,
           child: Container(

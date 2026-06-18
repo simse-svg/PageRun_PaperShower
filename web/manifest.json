@@ -1,6 +1,6 @@
 {
-    "name": "reading_pace_app",
-    "short_name": "reading_pace_app",
+    "name": "Page Run",
+    "short_name": "Page Run",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
