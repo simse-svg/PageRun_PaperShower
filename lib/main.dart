@@ -200,7 +200,10 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = <Widget>[
-      HomeTab(records: _records),
+      HomeTab(
+        records: _records,
+        isActive: _selectedIndex == 0,
+      ),
       MileageTab(records: _records),
       RecordTab(
         onSave: _addRecord,
@@ -247,9 +250,14 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class HomeTab extends StatefulWidget {
-  const HomeTab({super.key, required this.records});
+  const HomeTab({
+    super.key,
+    required this.records,
+    required this.isActive,
+  });
 
   final List<ReadingRecord> records;
+  final bool isActive;
 
   @override
   State<HomeTab> createState() => _HomeTabState();
@@ -259,19 +267,34 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
   int _currentIndex = 0;
   late AnimationController _animationController;
   double _dragOffset = 0;
-  double _animationProgress = 0;
+  double _animationFrom = 0;
+  double _animationTo = 0;
+  VoidCallback? _pendingAnimationComplete;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 260),
       vsync: this,
     );
     _animationController.addListener(() {
       setState(() {
-        _animationProgress = _animationController.value;
+        _dragOffset = ui.lerpDouble(
+          _animationFrom,
+          _animationTo,
+          _animationController.value,
+        )!;
       });
+    });
+    _animationController.addStatusListener((AnimationStatus status) {
+      if (status != AnimationStatus.completed) {
+        return;
+      }
+
+      final VoidCallback? callback = _pendingAnimationComplete;
+      _pendingAnimationComplete = null;
+      callback?.call();
     });
   }
 
@@ -281,50 +304,86 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _nextCard() {
-    if (_currentIndex < widget.records.length - 1) {
-      _dragOffset = 0;
-      _animationProgress = 0;
-      _animationController.forward(from: 0).then((_) {
-        if (mounted) {
-          setState(() {
-            _currentIndex++;
-            _dragOffset = 0;
-            _animationProgress = 0;
-          });
-          _animationController.reset();
-        }
+  @override
+  void didUpdateWidget(covariant HomeTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // 탭이 다시 Home으로 전환되면 항상 최신(0번) 카드부터 보여준다.
+    if (!oldWidget.isActive && widget.isActive) {
+      if (_animationController.isAnimating) {
+        _animationController.stop();
+      }
+      _pendingAnimationComplete = null;
+
+      setState(() {
+        _currentIndex = 0;
+        _dragOffset = 0;
       });
     }
+
+    // 레코드 수가 줄어 현재 인덱스가 범위를 벗어나면 안전하게 보정한다.
+    if (widget.records.isNotEmpty && _currentIndex >= widget.records.length) {
+      setState(() {
+        _currentIndex = widget.records.length - 1;
+        _dragOffset = 0;
+      });
+    }
+  }
+
+  void _animateDragOffsetTo(
+    double targetOffset, {
+    VoidCallback? onComplete,
+  }) {
+    final double distance = (targetOffset - _dragOffset).abs();
+    final int durationMs = (140 + (distance * 0.7)).clamp(140, 360).round();
+
+    _animationController.duration = Duration(milliseconds: durationMs);
+    _animationFrom = _dragOffset;
+    _animationTo = targetOffset;
+    _pendingAnimationComplete = onComplete;
+    _animationController.forward(from: 0);
+  }
+
+  void _moveCards(int cardCount) {
+    if (cardCount == 0) {
+      _snapBack();
+      return;
+    }
+
+    final int newIndex = (_currentIndex + cardCount).clamp(0, widget.records.length - 1);
+    if (newIndex == _currentIndex) {
+      _snapBack();
+      return;
+    }
+
+    final int actualMoveCount = newIndex - _currentIndex;
+    final double targetOffset = actualMoveCount * 100.0;
+
+    _animateDragOffsetTo(
+      targetOffset,
+      onComplete: () {
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _currentIndex = newIndex;
+          _dragOffset = 0;
+        });
+      },
+    );
+  }
+
+  void _nextCard() {
+    _moveCards(1);
   }
 
   void _prevCard() {
-    if (_currentIndex > 0) {
-      _dragOffset = 0;
-      _animationProgress = 0;
-      _animationController.reverse(from: 1).then((_) {
-        if (mounted) {
-          setState(() {
-            _currentIndex--;
-            _dragOffset = 0;
-            _animationProgress = 0;
-          });
-          _animationController.reset();
-        }
-      });
-    }
+    _moveCards(-1);
   }
 
   void _snapBack() {
-    _animationController.reverse(from: _animationProgress).then((_) {
-      if (mounted) {
-        setState(() {
-          _dragOffset = 0;
-          _animationProgress = 0;
-        });
-        _animationController.reset();
-      }
-    });
+    _animateDragOffsetTo(0);
   }
 
   @override
@@ -342,6 +401,14 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
       );
     }
 
+    final double totalProgress = _dragOffset / 100.0;
+    final List<int> sortedIndices = List<int>.generate(widget.records.length, (int i) => i)
+      ..sort((int a, int b) {
+        final double aDepth = (a - _currentIndex - totalProgress).abs();
+        final double bDepth = (b - _currentIndex - totalProgress).abs();
+        return bDepth.compareTo(aDepth);
+      });
+
     return Listener(
       onPointerSignal: (PointerSignalEvent event) {
         if (event is! PointerScrollEvent) {
@@ -354,17 +421,27 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
         }
       },
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onVerticalDragUpdate: (DragUpdateDetails details) {
+          if (_animationController.isAnimating) {
+            _animationController.stop();
+            _pendingAnimationComplete = null;
+          }
+
           setState(() {
             _dragOffset += details.delta.dy;
           });
         },
         onVerticalDragEnd: (DragEndDetails details) {
-          final threshold = 60.0;
-          if (_dragOffset > threshold) {
-            _nextCard();
-          } else if (_dragOffset < -threshold) {
-            _prevCard();
+          const double cardDistance = 100.0;
+          final int cardsMoved = (_dragOffset.abs() / cardDistance).round();
+
+          if (cardsMoved > 0) {
+            if (_dragOffset > 0) {
+              _moveCards(cardsMoved);
+            } else {
+              _moveCards(-cardsMoved);
+            }
           } else {
             _snapBack();
           }
@@ -373,40 +450,35 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
           child: Stack(
             alignment: Alignment.center,
             children: <Widget>[
-              for (int i = widget.records.length - 1; i >= _currentIndex; i--)
+              for (final int i in sortedIndices)
                 Builder(
                   builder: (BuildContext context) {
                     final cardIndex = (i - _currentIndex).toDouble();
-                    final totalProgress = _dragOffset / 100.0 + _animationProgress;
                     final adjustedIndex = cardIndex - totalProgress;
 
                     final yOffset = -(adjustedIndex * 100.0);
-                    final scale = (1 - (adjustedIndex.abs() * 0.04)).clamp(0.8, 1.0);
-                    final opacity = (1 - (adjustedIndex.abs() * 0.2)).clamp(0.3, 1.0);
+                    final opacity = (1 - (adjustedIndex.abs() * 0.22)).clamp(0.12, 1.0);
 
                     return Transform.translate(
                       offset: Offset(0, yOffset),
-                      child: Transform.scale(
-                        scale: scale,
-                        child: Opacity(
-                          opacity: opacity,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: _RecordCard(
-                              record: widget.records[i],
-                              margin: EdgeInsets.zero,
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (BuildContext context) =>
-                                        _HomeRecordFocusScreen(
-                                      records: widget.records,
-                                      initialIndex: i,
-                                    ),
+                      child: Opacity(
+                        opacity: opacity,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: _RecordCard(
+                            record: widget.records[i],
+                            margin: EdgeInsets.zero,
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (BuildContext context) =>
+                                      _HomeRecordFocusScreen(
+                                    records: widget.records,
+                                    initialIndex: i,
                                   ),
-                                );
-                              },
-                            ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -1163,10 +1235,37 @@ class _MileageTabState extends State<MileageTab> {
     final int totalMinutes = totalDuration.inMinutes;
     final String pageUnit = totalPages <= 1 ? 'page' : 'pages';
 
+    // 책별 통계 계산
+    final Map<String?, List<ReadingRecord>> recordsByBook = <String?, List<ReadingRecord>>{};
+    for (final ReadingRecord record in monthRecords) {
+      final String? bookName = record.bookName ?? '미분류';
+      recordsByBook.putIfAbsent(bookName, () => <ReadingRecord>[]).add(record);
+    }
+
+    final List<String?> bookNames = recordsByBook.keys.toList();
+    final Map<String?, ({Duration duration, int pages, double pace})> bookStats =
+        <String?, ({Duration duration, int pages, double pace})>{};
+
+    for (final String? bookName in bookNames) {
+      final List<ReadingRecord> bookRecords = recordsByBook[bookName]!;
+      final int bookPages = bookRecords.fold<int>(
+        0,
+        (int sum, ReadingRecord record) => sum + record.pagesRead,
+      );
+      final Duration bookDuration = bookRecords.fold<Duration>(
+        Duration.zero,
+        (Duration sum, ReadingRecord record) => sum + record.duration,
+      );
+      final double bookPace = bookDuration.inSeconds > 0
+          ? bookPages / (bookDuration.inSeconds / 60)
+          : 0;
+
+      bookStats[bookName] = (duration: bookDuration, pages: bookPages, pace: bookPace);
+    }
+
     final Set<String> seenBookNames = <String>{};
     final List<String> monthBookNames = <String>[];
-    for (final ReadingRecord record in monthRecords) {
-      final String? name = record.bookName;
+    for (final String? name in bookNames) {
       if (name == null || name.isEmpty || seenBookNames.contains(name)) {
         continue;
       }
@@ -1174,9 +1273,6 @@ class _MileageTabState extends State<MileageTab> {
       seenBookNames.add(name);
       monthBookNames.add(name);
     }
-    final String monthBookTitleText =
-        monthBookNames.isEmpty ? '-' : monthBookNames.join(', ');
-    final bool useTwoLineSummaryLayout = monthBookTitleText.length > 18;
 
     final Set<DateTime> readingDays = monthRecords
         .map((ReadingRecord record) {
@@ -1319,84 +1415,66 @@ class _MileageTabState extends State<MileageTab> {
                             ),
                       ),
                       const SizedBox(height: 8),
-                      if (useTwoLineSummaryLayout) ...<Widget>[
+                      if (monthBookNames.isEmpty)
                         Text(
-                          monthBookTitleText,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Color(0xFF8F5A6C),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                '$totalMinutes min',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF8F5A6C),
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                          '-',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF8F5A6C),
                               ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '${averagePace.toStringAsFixed(1)} p/min',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF7E3C54),
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                        )
+                      else
+                        ...monthBookNames.map(
+                          (String bookName) {
+                            final bookStat = bookStats[bookName] ?? (duration: Duration.zero, pages: 0, pace: 0.0);
+                            final Duration bookDuration = bookStat.duration;
+                            final double bookPace = bookStat.pace;
+                            final int bookMinutes = bookDuration.inMinutes;
+
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    flex: 2,
+                                    child: Text(
+                                      bookName,
+                                      style: const TextStyle(
+                                        color: Color(0xFF8F5A6C),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '$bookMinutes min',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Color(0xFF8F5A6C),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${bookPace.toStringAsFixed(1)} p/min',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Color(0xFF7E3C54),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
-                      ] else
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                monthBookTitleText,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF8F5A6C),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '$totalMinutes min',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF8F5A6C),
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                '${averagePace.toStringAsFixed(1)} p/min',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF7E3C54),
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
                     ],
                   ),
@@ -1601,6 +1679,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
   double? _lastSavedPace;
   int? _lastPagesRead;
   final List<String> _capturedPhotoPaths = <String>[];
+  bool _isPaused = false;
 
   bool get _isRunning => _timer != null;
 
@@ -1650,9 +1729,37 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
       _elapsed = Duration.zero;
       _startedAt = DateTime.now();
       _capturedPhotoPaths.clear();
+      _isPaused = false;
       _timer = Timer.periodic(const Duration(seconds: 1), (Timer timer) {
         _syncElapsedFromClock();
       });
+    });
+  }
+
+  void _pauseRecording() {
+    if (!_isRunning || _isPaused) {
+      return;
+    }
+
+    _timer?.cancel();
+    _timer = null;
+    _syncElapsedFromClock();
+
+    setState(() {
+      _isPaused = true;
+    });
+  }
+
+  void _resumeRecording() {
+    if (_isRunning || !_isPaused) {
+      return;
+    }
+
+    setState(() {
+      _timer = Timer.periodic(const Duration(seconds: 1), (Timer timer) {
+        _syncElapsedFromClock();
+      });
+      _isPaused = false;
     });
   }
 
@@ -1879,6 +1986,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
       _elapsed = Duration.zero;
       _startedAt = null;
       _capturedPhotoPaths.clear();
+      _isPaused = false;
     });
   }
 
@@ -2070,13 +2178,19 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
               children: <Widget>[
                 Expanded(
                   child: FilledButton(
-                    onPressed: _isRunning ? null : _startRecording,
-                    child: const Row(
+                    onPressed: _isRunning ? _pauseRecording : (_isPaused ? _resumeRecording : _startRecording),
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Icon(Icons.play_arrow, size: 18),
-                        SizedBox(width: 3),
-                        Text('Start', style: TextStyle(fontSize: 16)),
+                        Icon(
+                          _isRunning && !_isPaused ? Icons.pause : Icons.play_arrow,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          _isRunning && !_isPaused ? 'Pause' : (_isPaused ? 'Resume' : 'Start'),
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ],
                     ),
                     style: FilledButton.styleFrom(
@@ -2089,7 +2203,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 const SizedBox(width: 6),
                 Expanded(
                   child: FilledButton(
-                    onPressed: _isRunning ? _stopRecording : null,
+                    onPressed: (_isRunning || _isPaused) ? _stopRecording : null,
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
@@ -2108,7 +2222,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                 const SizedBox(width: 6),
                 Expanded(
                   child: FilledButton(
-                    onPressed: _isRunning ? _capturePhoto : null,
+                    onPressed: (_isRunning && !_isPaused) ? _capturePhoto : null,
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
