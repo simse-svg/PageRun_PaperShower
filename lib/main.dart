@@ -1891,7 +1891,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('종료 페이지 입력'),
+          title: const Text('Finish page'),
           content: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
@@ -1901,14 +1901,14 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('취소'),
+              child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: () {
                 final int? value = int.tryParse(controller.text.trim());
                 Navigator.of(context).pop(value);
               },
-              child: const Text('저장'),
+              child: const Text('Save'),
             ),
           ],
         );
