@@ -469,12 +469,15 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
                             record: widget.records[i],
                             margin: EdgeInsets.zero,
                             onTap: () {
+                              final ReadingRecord selectedRecord = widget.records[i];
+                              final List<String> validPhotoPaths = selectedRecord.photoPaths
+                                  .where((String path) => path.isNotEmpty)
+                                  .toList();
                               Navigator.of(context).push(
                                 MaterialPageRoute<void>(
-                                  builder: (BuildContext context) =>
-                                      _HomeRecordFocusScreen(
-                                    records: widget.records,
-                                    initialIndex: i,
+                                  builder: (BuildContext context) => _RecordPhotosScreen(
+                                    record: selectedRecord,
+                                    photoPaths: validPhotoPaths,
                                   ),
                                 ),
                               );
@@ -939,9 +942,14 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
               itemBuilder: (BuildContext context, int index) {
                 if (index == 0) {
                   return Center(
-                    child: RepaintBoundary(
-                      key: _transparentRecordKey,
-                      child: _TransparentRecordPhoto(record: widget.record),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _CheckerboardBackground(
+                        child: RepaintBoundary(
+                          key: _transparentRecordKey,
+                          child: _TransparentRecordPhoto(record: widget.record),
+                        ),
+                      ),
                     ),
                   );
                 }
@@ -996,8 +1004,7 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
                     child: index == 0
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: ColoredBox(
-                              color: Colors.black,
+                            child: _CheckerboardBackground(
                               child: FittedBox(
                                 fit: BoxFit.cover,
                                 child: SizedBox(
@@ -1835,7 +1842,21 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
 
       bool gallerySaved = false;
       try {
-        final Uint8List imageBytes = await File(image.path).readAsBytes();
+        final Uint8List rawImageBytes = await File(image.path).readAsBytes();
+        Uint8List imageBytes = rawImageBytes;
+
+        final img.Image? decodedImage = img.decodeImage(rawImageBytes);
+        if (decodedImage != null) {
+          final img.Image orientationBakedImage = img.bakeOrientation(decodedImage);
+          final img.Image rotatedImage = img.copyRotate(
+            orientationBakedImage,
+            angle: 90,
+          );
+          imageBytes = Uint8List.fromList(
+            img.encodeJpg(rotatedImage, quality: 100),
+          );
+        }
+
         final String fileName = 'pagerun_capture_${DateTime.now().millisecondsSinceEpoch}';
         final dynamic result = await ImageGallerySaverPlus.saveImage(
           imageBytes,
@@ -2274,12 +2295,22 @@ String _formatDuration(Duration duration) {
 }
 
 String _formatDateTime(DateTime dateTime) {
-  final String y = dateTime.year.toString();
-  final String m = dateTime.month.toString().padLeft(2, '0');
-  final String d = dateTime.day.toString().padLeft(2, '0');
-  final String h = dateTime.hour.toString().padLeft(2, '0');
-  final String min = dateTime.minute.toString().padLeft(2, '0');
-  return '$y-$m-$d $h:$min';
+  const List<String> monthAbbr = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final String month = monthAbbr[dateTime.month - 1];
+  return '$month ${dateTime.day}, ${dateTime.year}';
 }
 
 String _formatShortDuration(Duration duration) {
@@ -2418,4 +2449,47 @@ class _TransparentMetric extends StatelessWidget {
       ],
     );
   }
+}
+
+class _CheckerboardBackground extends StatelessWidget {
+  const _CheckerboardBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: const _CheckerboardPainter(),
+      child: child,
+    );
+  }
+}
+
+class _CheckerboardPainter extends CustomPainter {
+  const _CheckerboardPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double squareSize = 12;
+    const Color colorA = Color(0xFFE7E7E7);
+    const Color colorB = Color(0xFFFFFFFF);
+
+    final Paint paintA = Paint()..color = colorA;
+    final Paint paintB = Paint()..color = colorB;
+
+    for (double y = 0; y < size.height; y += squareSize) {
+      for (double x = 0; x < size.width; x += squareSize) {
+        final int xIndex = (x / squareSize).floor();
+        final int yIndex = (y / squareSize).floor();
+        final bool useA = (xIndex + yIndex).isEven;
+        canvas.drawRect(
+          Rect.fromLTWH(x, y, squareSize, squareSize),
+          useA ? paintA : paintB,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CheckerboardPainter oldDelegate) => false;
 }
