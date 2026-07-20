@@ -413,7 +413,7 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Text(
-            'No records yet.\nGo to the Record tab and start tracking.',
+            'No records yet.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16),
           ),
