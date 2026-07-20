@@ -393,7 +393,7 @@ class _HomeTabState extends State<HomeTab> with TickerProviderStateMixin {
         child: Padding(
           padding: EdgeInsets.all(24),
           child: Text(
-            '아직 기록이 없습니다.\nRecord 탭에서 페이지를 입력하고 측정을 시작하세요.',
+            'No records yet.\nGo to the Record tab and start tracking.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16),
           ),
@@ -530,7 +530,7 @@ class _HomeRecordFocusScreenState extends State<_HomeRecordFocusScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('기록 ${_currentIndex + 1}/${widget.records.length}'),
+        title: Text('Record ${_currentIndex + 1}/${widget.records.length}'),
       ),
       body: PageView.builder(
         controller: _pageController,
@@ -888,7 +888,7 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(success ? '사진이 갤러리에 저장되었습니다.' : '사진 저장에 실패했습니다.'),
+            content: Text(success ? 'Photo saved' : 'Failed to save photo.'),
           ),
         );
     } catch (_) {
@@ -899,7 +899,7 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('사진 저장 중 오류가 발생했습니다. 권한을 확인해 주세요.')),
+          const SnackBar(content: Text('An error occurred while saving the photo. Please check permissions.')),
         );
     } finally {
       if (!mounted) {
@@ -933,11 +933,11 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('기록 사진 ${_currentIndex + 1}/$_totalPages'),
+        title: Text('Page Records ${_currentIndex + 1}/$_totalPages'),
         actions: <Widget>[
           IconButton(
             onPressed: _isSavingPhoto ? null : _downloadCurrentPhoto,
-            tooltip: '사진 저장',
+            tooltip: 'Save Photo',
             icon: _isSavingPhoto
                 ? const SizedBox(
                     width: 18,
@@ -983,7 +983,7 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
                       File(path),
                       fit: BoxFit.contain,
                       errorBuilder: (BuildContext context, Object error, StackTrace? stackTrace) {
-                        return const Center(child: Text('사진을 불러올 수 없습니다.'));
+                        return const Center(child: Text('Unable to load photo.'));
                       },
                     ),
                   ),
@@ -1265,7 +1265,7 @@ class _MileageTabState extends State<MileageTab> {
     // 책별 통계 계산
     final Map<String?, List<ReadingRecord>> recordsByBook = <String?, List<ReadingRecord>>{};
     for (final ReadingRecord record in monthRecords) {
-      final String? bookName = record.bookName ?? '미분류';
+      final String? bookName = record.bookName ?? 'What did I read?';
       recordsByBook.putIfAbsent(bookName, () => <ReadingRecord>[]).add(record);
     }
 
@@ -1320,7 +1320,7 @@ class _MileageTabState extends State<MileageTab> {
         ? 0
         : pagesByDay.values.reduce((int a, int b) => a > b ? a : b);
 
-    final List<Widget> dayHeaders = <String>['일', '월', '화', '수', '목', '금', '토']
+  final List<Widget> dayHeaders = <String>['S', 'M', 'T', 'W', 'T', 'F', 'S']
         .map(
           (String day) => Center(
             child: Text(
@@ -1360,7 +1360,7 @@ class _MileageTabState extends State<MileageTab> {
               IconButton(
                 onPressed: () => _changeMonth(-1),
                 icon: const Icon(Icons.chevron_left),
-                tooltip: '이전 달',
+                tooltip: 'Last month',
               ),
               Expanded(
                 child: Center(
@@ -1375,7 +1375,7 @@ class _MileageTabState extends State<MileageTab> {
               IconButton(
                 onPressed: () => _changeMonth(1),
                 icon: const Icon(Icons.chevron_right),
-                tooltip: '다음 달',
+                tooltip: 'Next month',
               ),
             ],
           ),
@@ -1522,7 +1522,7 @@ class _MileageTabState extends State<MileageTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    '${_focusedMonth.month}월 $_selectedDay일 기록',
+                    'Record on ${_focusedMonth.month}/${_selectedDay}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: const Color(0xFF7E3C54),
                           fontWeight: FontWeight.w800,
@@ -1531,7 +1531,7 @@ class _MileageTabState extends State<MileageTab> {
                   const SizedBox(height: 10),
                   if (selectedDayRecords.isEmpty)
                     Text(
-                      '기록이 없습니다.',
+                      'No records found.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: const Color(0xFF9A6A7B),
                           ),
@@ -1748,7 +1748,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
   void _startRecording() {
     final int? startPage = int.tryParse(_startPageController.text.trim());
     if (startPage == null || startPage < 0) {
-      _showSnack('시작 페이지를 올바르게 입력해 주세요.');
+      _showSnack('Please enter a valid start page.');
       return;
     }
 
@@ -1793,7 +1793,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
   Future<void> _stopRecording() async {
     final int? startPage = int.tryParse(_startPageController.text.trim());
     if (startPage == null || startPage < 0) {
-      _showSnack('시작 페이지를 다시 확인해 주세요.');
+      _showSnack('Please check the start page again.');
       return;
     }
 
@@ -1808,7 +1808,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
     }
 
     if (endPage < startPage) {
-      _showSnack('종료 페이지는 시작 페이지보다 크거나 같아야 합니다.');
+      _showSnack('End page must be greater than or equal to the start page.');
       setState(() {});
       return;
     }
@@ -1841,12 +1841,12 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
       _capturedPhotoPaths.clear();
     });
 
-    _showSnack('기록이 저장되었습니다.');
+    _showSnack('You read a lot of books today!');
   }
 
   Future<void> _capturePhoto() async {
     if (!_isRunning) {
-      _showSnack('기록 중일 때만 사진을 찍을 수 있습니다.');
+      _showSnack('Want to take a photo? Start reading a book.');
       return;
     }
 
@@ -1897,11 +1897,11 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
       });
       _showSnack(
         gallerySaved
-            ? '사진이 추가되고 갤러리에 저장되었습니다.'
-            : '사진은 추가되었지만 갤러리 저장은 실패했습니다.',
+          ? 'Captured! Check it out in your gallery.'
+            : 'Photo captured, but failed to save to gallery.',
       );
     } catch (_) {
-      _showSnack('카메라를 열 수 없습니다. 권한 또는 기기 상태를 확인해 주세요.');
+      _showSnack('Unable to open camera. Please check permissions or device status.');
     }
   }
 
@@ -1915,7 +1915,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
           content: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(hintText: '예: 58'),
+            decoration: const InputDecoration(hintText: 'ex: 58'),
             autofocus: true,
           ),
           actions: <Widget>[
@@ -1951,7 +1951,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
         return StatefulBuilder(
           builder: (BuildContext context, void Function(void Function()) setDialogState) {
             return AlertDialog(
-              title: const Text('메인 사진 선택'),
+              title: const Text('Select Main Photo'),
               content: SizedBox(
                 width: 320,
                 child: Column(
@@ -2008,7 +2008,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
               actions: <Widget>[
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(selectedPath),
-                  child: const Text('선택 완료'),
+                  child: const Text('Done'),
                 ),
               ],
             );
@@ -2039,45 +2039,6 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
 
   void _dismissKeyboard() {
     FocusManager.instance.primaryFocus?.unfocus();
-  }
-
-  void _showBookDialog() {
-    final TextEditingController tempController = TextEditingController(
-      text: _bookNameController.text,
-    );
-
-    showDialog<void>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('책 이름 입력'),
-          content: TextField(
-            controller: tempController,
-            decoration: const InputDecoration(
-              hintText: '예: Flutter Guide',
-              border: OutlineInputBorder(),
-            ),
-            autofocus: true,
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () {
-                setState(() {
-                  _bookNameController.text = tempController.text;
-                });
-                Navigator.of(context).pop();
-              },
-              child: const Text('저장'),
-            ),
-          ],
-        );
-      },
-    );
-    tempController.dispose();
   }
 
   @override
@@ -2116,7 +2077,7 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
                                 minWidth: MediaQuery.sizeOf(context).width - 32,
                                 maxWidth: MediaQuery.sizeOf(context).width - 32,
                               ),
-                              tooltip: '이전 책 선택',
+                              tooltip: 'Book list',
                               icon: const Icon(Icons.arrow_drop_down),
                               onOpened: _dismissKeyboard,
                               onSelected: (String value) {
@@ -2347,12 +2308,6 @@ String _formatHomeDuration(Duration duration) {
   }
 
   return '${duration.inMinutes}m';
-}
-
-String _formatMileageDuration(Duration duration) {
-  final int totalHours = duration.inHours;
-  final int minutes = duration.inMinutes % 60;
-  return '${totalHours}시간 ${minutes.toString().padLeft(2, '0')}분';
 }
 
 int _asInt(dynamic value) {
