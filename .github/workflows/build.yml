@@ -69,12 +69,3 @@ jobs:
           name: flutter-aab
           path: build/app/outputs/bundle/release/app-release.aab
           retention-days: 30
-
-      - name: Create Release
-        if: success()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create release-${{ github.run_number }} \
-            --title "Release ${{ github.run_number }}" \
-            --notes "Flutter APK built successfully"

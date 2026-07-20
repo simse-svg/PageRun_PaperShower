@@ -1,0 +1,92 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="92" y1="54" x2="936" y2="452" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8F2"/>
+      <stop offset="1" stop-color="#FFF1F4"/>
+    </linearGradient>
+    <radialGradient id="glowLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(248 180) rotate(69.5) scale(236 252)">
+      <stop stop-color="#FF7A67" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#FF7A67" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(770 250) rotate(90) scale(220 360)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="pageMain" x1="214" y1="116" x2="444" y2="382" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF6557"/>
+      <stop offset="1" stop-color="#FF4A4A"/>
+    </linearGradient>
+    <linearGradient id="pageSecond" x1="510" y1="132" x2="637" y2="381" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF9C85"/>
+      <stop offset="1" stop-color="#FF7C6B"/>
+    </linearGradient>
+    <linearGradient id="pageThird" x1="562" y1="176" x2="709" y2="392" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD1BA"/>
+      <stop offset="1" stop-color="#FFC6A0"/>
+    </linearGradient>
+    <linearGradient id="pageFourth" x1="606" y1="236" x2="760" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0DB"/>
+      <stop offset="1" stop-color="#FFE7C5"/>
+    </linearGradient>
+    <filter id="softShadow" x="124" y="88" width="452" height="332" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="20"/>
+      <feGaussianBlur stdDeviation="22"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.902 0 0 0 0 0.192 0 0 0 0 0.278 0 0 0 0.16 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+    <filter id="cardShadow" x="630" y="112" width="250" height="250" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="18"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.235 0 0 0 0 0.156 0 0 0 0 0.219 0 0 0 0.1 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="500" rx="36" fill="url(#bgGradient)"/>
+  <circle cx="248" cy="180" r="240" fill="url(#glowLeft)"/>
+  <circle cx="770" cy="250" r="240" fill="url(#glowRight)"/>
+
+  <g opacity="0.7">
+    <circle cx="116" cy="96" r="4" fill="#FFC1B1"/>
+    <circle cx="154" cy="72" r="2.5" fill="#FFD4C4"/>
+    <circle cx="902" cy="108" r="4" fill="#FFD8C8"/>
+    <circle cx="940" cy="134" r="2.5" fill="#FFE2D6"/>
+    <circle cx="886" cy="390" r="3" fill="#FFD3C2"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <path d="M238 162C238 147.641 246.62 134.688 259.87 129.154L454.566 47.8403C471.693 40.6844 490 53.2697 490 71.8328V302.937C490 317.669 481.012 330.911 467.336 336.237L274.067 411.49C256.855 418.191 238 405.496 238 387.026V162Z" fill="url(#pageMain)"/>
+    <path d="M507 122.993C507 115.277 511.508 108.27 518.532 105.082L629.601 54.6549C641.233 49.3738 654.304 58.0901 653.879 70.8594L646.989 277.858C646.506 292.36 637.979 305.358 624.824 311.49L534.914 353.382C522.979 358.942 509.223 350.245 509.223 337.08L507 122.993Z" fill="url(#pageSecond)"/>
+    <path d="M641 165.352C641 159.284 644.864 153.891 650.609 151.923L741.179 120.909C752.067 117.181 762.642 126.115 761.311 137.547L735.262 361.359C734.499 367.917 730.498 373.662 724.593 376.604L663.717 406.933C652.783 412.379 640 404.424 640 392.209L641 165.352Z" fill="url(#pageThird)"/>
+    <path d="M745 239.58C745 234.959 747.938 230.85 752.322 229.35L819.623 206.323C829.476 202.952 839.055 211.49 836.99 221.705L807.289 368.651C806.575 372.184 804.371 375.238 801.265 377.019L760.796 400.22C751.464 405.571 740 398.829 740 388.072L745 239.58Z" fill="url(#pageFourth)"/>
+  </g>
+
+  <g filter="url(#cardShadow)">
+    <rect x="666" y="148" width="178" height="178" rx="28" fill="#FFFFFF" fill-opacity="0.94"/>
+    <rect x="694" y="180" width="76" height="12" rx="6" fill="#FFE5E0"/>
+    <rect x="694" y="206" width="124" height="14" rx="7" fill="#262731"/>
+    <rect x="694" y="236" width="96" height="10" rx="5" fill="#B5B8C4"/>
+    <rect x="694" y="268" width="110" height="18" rx="9" fill="#FF5B52" fill-opacity="0.12"/>
+    <text x="708" y="282" fill="#E54542" font-size="12" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="700">2.4 pages/min</text>
+  </g>
+
+  <text x="512" y="204" fill="#262731" font-size="66" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="800" letter-spacing="-1.8">Page Run</text>
+  <text x="512" y="254" fill="#6F7280" font-size="28" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="500">Track your reading time and page pace</text>
+
+  <g>
+    <rect x="512" y="304" width="116" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="545" y="331" fill="#E54A45" font-size="18" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="700">Timer</text>
+    <rect x="642" y="304" width="118" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="676" y="331" fill="#E54A45" font-size="18" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="700">Pages</text>
+    <rect x="774" y="304" width="104" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.82"/>
+    <text x="807" y="331" fill="#E54A45" font-size="18" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="700">Pace</text>
+  </g>
+
+  <text x="512" y="393" fill="#898C99" font-size="21" font-family="Aptos, Segoe UI, Arial, sans-serif" font-weight="500">Simple reading logs. Clear progress. Saved on your device.</text>
+</svg>
