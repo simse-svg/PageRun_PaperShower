@@ -10,10 +10,30 @@ import 'package:flutter/rendering.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const ReadingPaceApp());
+const String _sentryDsn = String.fromEnvironment('SENTRY_DSN');
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  if (_sentryDsn.isEmpty) {
+    runApp(const ReadingPaceApp());
+    return;
+  }
+
+  await SentryFlutter.init(
+    (SentryFlutterOptions options) {
+      options.dsn = _sentryDsn;
+      options.sendDefaultPii = false;
+      options.tracesSampleRate = 0;
+      options.profilesSampleRate = 0;
+      options.enableAutoSessionTracking = false;
+      options.maxBreadcrumbs = 0;
+    },
+    appRunner: () => runApp(const ReadingPaceApp()),
+  );
 }
 
 class ReadingPaceApp extends StatelessWidget {
@@ -1868,12 +1888,8 @@ class _RecordTabState extends State<RecordTab> with WidgetsBindingObserver {
         final img.Image? decodedImage = img.decodeImage(rawImageBytes);
         if (decodedImage != null) {
           final img.Image orientationBakedImage = img.bakeOrientation(decodedImage);
-          final img.Image rotatedImage = img.copyRotate(
-            orientationBakedImage,
-            angle: 90,
-          );
           imageBytes = Uint8List.fromList(
-            img.encodeJpg(rotatedImage, quality: 100),
+            img.encodeJpg(orientationBakedImage, quality: 100),
           );
         }
 

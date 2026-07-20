@@ -21,6 +21,20 @@ flutter pub get
 flutter run
 ```
 
+## Optional Crash Reporting
+
+This app is configured for minimal collection only.
+
+- Default: sends nothing
+- If `SENTRY_DSN` is provided at build/run time: sends crash reports only
+- No usage analytics, no session replay, no performance tracing, no default PII
+
+Example:
+
+```bash
+flutter run --dart-define=SENTRY_DSN=your_dsn_here
+```
+
 ## Core Rule
 
 - Pace formula: `pace = pagesRead / minutesElapsed`
