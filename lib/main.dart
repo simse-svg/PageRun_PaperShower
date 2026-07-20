@@ -23,7 +23,7 @@ class ReadingPaceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Page Run',
+      title: 'PageRun',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFFE60023),
@@ -811,6 +811,14 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
     return bytes.buffer.asUint8List();
   }
 
+  Future<File> _writeTransparentCaptureToPngFile(Uint8List imageBytes) async {
+    final String fileName =
+        'pagerun_${widget.record.recordedAt.millisecondsSinceEpoch}_${_currentIndex + 1}.png';
+    final String filePath = '${Directory.systemTemp.path}${Platform.pathSeparator}$fileName';
+    final File file = File(filePath);
+    return file.writeAsBytes(imageBytes, flush: true);
+  }
+
   Uint8List _normalizeImageOrientation(Uint8List imageBytes) {
     final img.Image? decoded = img.decodeImage(imageBytes);
     if (decoded == null) {
@@ -831,9 +839,22 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
     });
 
     try {
-      final Uint8List imageBytes;
+      bool success = false;
       if (_isTransparentPageSelected) {
-        imageBytes = await _captureTransparentRecordImageBytes();
+        final Uint8List imageBytes = await _captureTransparentRecordImageBytes();
+        final File pngFile = await _writeTransparentCaptureToPngFile(imageBytes);
+        final String fileName =
+            'pagerun_${widget.record.recordedAt.millisecondsSinceEpoch}_${_currentIndex + 1}';
+        final dynamic result = await ImageGallerySaverPlus.saveFile(
+          pngFile.path,
+          name: fileName,
+        );
+
+        if (result is Map) {
+          final dynamic isSuccess = result['isSuccess'];
+          final dynamic hasPath = result['filePath'];
+          success = isSuccess == true || (hasPath is String && hasPath.isNotEmpty);
+        }
       } else {
         final String path = _photoPathFromIndex(_currentIndex);
         final File file = File(path);
@@ -842,22 +863,21 @@ class _RecordPhotosScreenState extends State<_RecordPhotosScreen> {
         }
 
         final Uint8List rawImageBytes = await file.readAsBytes();
-        imageBytes = _normalizeImageOrientation(rawImageBytes);
-      }
+        final Uint8List imageBytes = _normalizeImageOrientation(rawImageBytes);
 
-      final String fileName =
-          'pagerun_${widget.record.recordedAt.millisecondsSinceEpoch}_${_currentIndex + 1}';
-      final dynamic result = await ImageGallerySaverPlus.saveImage(
-        imageBytes,
-        quality: 100,
-        name: fileName,
-      );
+        final String fileName =
+            'pagerun_${widget.record.recordedAt.millisecondsSinceEpoch}_${_currentIndex + 1}';
+        final dynamic result = await ImageGallerySaverPlus.saveImage(
+          imageBytes,
+          quality: 100,
+          name: fileName,
+        );
 
-      bool success = false;
-      if (result is Map) {
-        final dynamic isSuccess = result['isSuccess'];
-        final dynamic hasPath = result['filePath'];
-        success = isSuccess == true || (hasPath is String && hasPath.isNotEmpty);
+        if (result is Map) {
+          final dynamic isSuccess = result['isSuccess'];
+          final dynamic hasPath = result['filePath'];
+          success = isSuccess == true || (hasPath is String && hasPath.isNotEmpty);
+        }
       }
 
       if (!mounted) {
